@@ -3,12 +3,14 @@
 from pathlib import Path
 
 # Chunking settings: change these to try a different split.
-DOCS_DIR = Path("docs")
+DOCS_DIR = Path(__file__).parent / "docs"  # next to this file, not the current directory
 SECTION_MARKER = "## "  # each line starting with this begins a new chunk
 
 
 def load_docs(docs_dir: Path = DOCS_DIR) -> list[dict]:
     """Read every .md file in docs_dir and return its name and text."""
+    if not docs_dir.is_dir():
+        raise FileNotFoundError(f"docs folder not found: {docs_dir}")
     return [
         {"source": path.name, "text": path.read_text(encoding="utf-8")}
         for path in sorted(docs_dir.glob("*.md"))
