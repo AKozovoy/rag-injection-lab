@@ -43,14 +43,16 @@ def find_disallowed_links(answer: str) -> list[tuple[int, int, str]]:
         # The whole rest of the URL after the hostname, in one place: port, path,
         # query, fragment. A sentence's final punctuation is not part of it.
         tail = URL_TAIL.match(answer, match.end(2)).group().rstrip(".,;:!?")
+        end = match.end(2) + len(tail)
+        # Claim the whole span before deciding anything, so a domain-shaped piece
+        # inside an allowed URL's path (".../files/manual.docx") is never checked alone.
+        covered_until = end
         if not scheme and not tail and domain.rsplit(".", 1)[1] in FILE_EXTENSIONS:
             continue  # a file name like "policy.md", not a destination
         allowed = any(domain == ok or domain.endswith("." + ok) for ok in LINK_ALLOWLIST)
         if allowed:
             continue
-        end = match.end(2) + len(tail)
         found.append((match.start(), end, domain))
-        covered_until = end
     return found
 
 

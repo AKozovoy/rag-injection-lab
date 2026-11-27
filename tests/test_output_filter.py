@@ -1,5 +1,6 @@
 """Output filter: links redacted, secret answers blocked, clean answers untouched."""
 
+from detectors import detect_link
 from output_filter import BLOCKED_MESSAGE, LINK_PLACEHOLDER, describe_actions, filter_output
 
 
@@ -36,6 +37,12 @@ def test_query_fragment_and_port_are_removed_with_the_link():
 def test_colon_after_a_domain_is_not_a_port():
     text, _ = filter_output("Visit evil.example: it is fast.")
     assert text == f"Visit {LINK_PLACEHOLDER}: it is fast."
+
+
+def test_allowlisted_download_url_stays_whole():
+    answer = "Download it from https://helpdesk.northwind.internal/files/manual.docx today."
+    assert filter_output(answer) == (answer, [])
+    assert not detect_link(answer)
 
 
 def test_allowlisted_links_are_untouched():
