@@ -8,19 +8,23 @@ false alarms and average answer latency.
 Run with: python compare_defenses.py              (runs all configs, ~10 minutes)
       or: python compare_defenses.py --from-saved (newest saved run per config, no model calls)
 
-Raw runs stay in results/ (not committed); the table goes to findings/ (committed).
+Raw runs stay in results/ (not committed); the table goes to findings/ (committed),
+with the 9 runs behind it copied to findings/runs/.
 """
 
 import argparse
 import csv
+import io
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
+from ingest import ATTACKS_DIR
 from rag import normalize_defenses
-from run_attacks import CASES_FILE, RESULTS_DIR, run_suite
-from score_results import score_run
+from run_attacks import CASES_FILE, RESULTS_DIR, corpus_fingerprint, run_suite
+from score_results import score_run, verdict_label
 
 FINDINGS_DIR = Path(__file__).parent / "findings"
 
@@ -180,26 +184,103 @@ def print_table(rows: list[dict]) -> None:
         )
 
 
-def save(rows: list[dict], settings: dict, sources: dict[str, str], verified: bool) -> None:
-    """findings/defense_comparison.json (for the Attack Lab page) and .csv (for GitHub)."""
-    FINDINGS_DIR.mkdir(exist_ok=True)
-    report = {
+def answer_verdicts(results: dict) -> list[dict]:
+    """Each answer's verdict, scored now with the same rules as the table's counts."""
+    return [
+        {"case": r["case"], "question": r["question"], "verdict": verdict_label(r)}
+        for r in score_run(results)
+        if not r.get("unscored")
+    ]
+
+
+def attack_doc_snapshots(runs: dict[str, dict]) -> dict[str, str]:
+    """The text of every attack doc the runs used, saved so the page shows what ran.
+
+    Only safe if the files haven't changed since the runs, so the current files
+    must still match the runs' corpus fingerprint.
+    """
+    recorded = runs["none"]["settings"].get("corpus_fingerprint")
+    if recorded is None or recorded != corpus_fingerprint():
+        raise ValueError(
+            "the documents changed since these runs (or the runs have no fingerprint), "
+            "so their attack docs can't be snapshotted: run without --from-saved"
+        )
+    names = {c["attack_doc"] for run in runs.values() for c in run["cases"] if c.get("attack_doc")}
+    return {name: (ATTACKS_DIR / name).read_text(encoding="utf-8") for name in sorted(names)}
+
+
+def _write_temp(path: Path, text: str) -> Path:
+    """Write the text next to path as path.tmp and return that temporary file."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    return tmp
+
+
+def _write_together(files: dict[Path, str]) -> None:
+    """Replace several files so they change together, in the given order.
+
+    Every file is written to a temporary copy first (where real failures like a
+    full disk happen); only when all of them exist are they renamed into place.
+    If a write fails, the temporary copies are removed and the old files stay.
+    """
+    temps = []
+    try:
+        for path, text in files.items():
+            temps.append((_write_temp(path, text), path))
+    except Exception:
+        for tmp, _ in temps:
+            tmp.unlink(missing_ok=True)
+        raise
+    for tmp, path in temps:  # a rename is near-instant and all-or-nothing
+        tmp.replace(path)
+
+
+def publish(report: dict, paths: dict[str, Path]) -> None:
+    """Save the findings so a failure can never leave the report pointing at missing runs.
+
+    1. copy the new runs into findings/runs/ (next to the old ones),
+    2. write the CSV and report together (both or neither), the report last,
+    3. only then delete run copies the new report no longer uses.
+    """
+    runs_dir = FINDINGS_DIR / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    for path in paths.values():
+        target = runs_dir / path.name
+        if path.resolve() != target.resolve():
+            shutil.copy2(path, target)
+
+    table = io.StringIO()
+    writer = csv.DictWriter(table, fieldnames=list(report["rows"][0]))
+    writer.writeheader()
+    writer.writerows(report["rows"])
+    # CSV first, JSON last: the JSON is what the Attack Lab page trusts.
+    _write_together({
+        FINDINGS_DIR / "defense_comparison.csv": table.getvalue(),
+        FINDINGS_DIR / "defense_comparison.json": json.dumps(report, indent=2, ensure_ascii=False),
+    })
+
+    in_use = set(report["sources"].values())
+    for old in runs_dir.glob("attacks_*.json"):
+        if old.name not in in_use:
+            old.unlink()
+
+
+def build_report(rows, runs, sources, verified) -> dict:
+    """Everything the Attack Lab page shows, taken from these runs at this moment."""
+    return {
         "generated": datetime.now().isoformat(timespec="seconds"),
         # False = the runs can't prove they used identical documents (see corpus_verified).
         "corpus_verified": verified,
         # Shared by every run (checked by check_compatible).
-        "settings": {k: settings.get(k) for k in BENCHMARK_SETTINGS},
+        "settings": {k: runs["none"]["settings"].get(k) for k in BENCHMARK_SETTINGS},
         "configs": {name: list(normalize_defenses(d)) for name, d in CONFIGS.items()},
         "sources": sources,  # which saved run file each config's numbers came from
         "rows": rows,
+        # Per-answer verdicts and attack doc texts, so the drill-down always matches
+        # the table even after detector rules or documents change later.
+        "verdicts": {name: answer_verdicts(run) for name, run in runs.items()},
+        "attack_docs": attack_doc_snapshots(runs),
     }
-    (FINDINGS_DIR / "defense_comparison.json").write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    with open(FINDINGS_DIR / "defense_comparison.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 if __name__ == "__main__":
@@ -208,7 +289,7 @@ if __name__ == "__main__":
     from_saved = parser.parse_args().from_saved
 
     cases = json.loads(CASES_FILE.read_text(encoding="utf-8"))
-    runs, sources = {}, {}
+    runs, sources, paths = {}, {}, {}
     for name, defenses in CONFIGS.items():
         if from_saved:
             path, runs[name] = latest_saved_run(defenses)
@@ -218,7 +299,7 @@ if __name__ == "__main__":
             RESULTS_DIR.mkdir(exist_ok=True)
             path = RESULTS_DIR / f"attacks_{run_label(defenses)}_{datetime.now():%Y%m%d-%H%M%S}.json"
             path.write_text(json.dumps(runs[name], indent=2, ensure_ascii=False), encoding="utf-8")
-        sources[name] = path.name
+        sources[name], paths[name] = path.name, path
 
     check_compatible(runs)
     rows = build_rows({name: summarize(run) for name, run in runs.items()})
@@ -227,5 +308,5 @@ if __name__ == "__main__":
     print_table(rows)
     if not verified:
         print("\nWARNING: unverified: not every run recorded the same corpus fingerprint.")
-    save(rows, runs["none"]["settings"], sources, verified)
+    publish(build_report(rows, runs, sources, verified), paths)
     print(f"\nSaved {FINDINGS_DIR / 'defense_comparison.json'} and .csv")
