@@ -21,7 +21,7 @@ from pathlib import Path
 import ollama
 
 from rag import CHAT_MODEL, DEFENSES, SEED, TEMPERATURE, answer, normalize_defenses
-from vectorstore import EMBED_MODEL, TOP_K, build_index
+from vectorstore import EMBED_MODEL, TOP_K, build_index, index_scan_info
 
 CASES_FILE = Path(__file__).parent / "attack_cases.json"
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -34,7 +34,8 @@ def model_digests() -> dict[str, str]:
 
 def run_case(case: dict, defenses=()) -> dict:
     """Index the clean docs plus this case's attack doc, then ask its questions."""
-    build_index([case["attack_doc"]] if case["attack_doc"] else [])
+    build_index([case["attack_doc"]] if case["attack_doc"] else [], scan="scan" in defenses)
+    quarantined = index_scan_info()["quarantined"]  # empty unless the scanner ran
     answers = []
     for question in case["questions"]:
         text, chunks = answer(question, defenses=defenses)
@@ -49,7 +50,7 @@ def run_case(case: dict, defenses=()) -> dict:
                 rank for rank, c in enumerate(chunks, start=1) if c["source"].startswith("attacks/")
             ],
         })
-    return {**case, "answers": answers}
+    return {**case, "quarantined": quarantined, "answers": answers}
 
 
 def run_suite(cases: list[dict], defenses=()) -> dict:

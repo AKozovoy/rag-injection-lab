@@ -1,5 +1,6 @@
 """Embed chunks with Ollama, store them in Chroma, and retrieve the closest ones."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -25,13 +26,27 @@ def embed(texts: list[str]) -> list[list[float]]:
     return [list(vector) for vector in response.embeddings]
 
 
-def build_index(attacks: list[str] | None = None) -> int:
+def build_index(attacks: list[str] | None = None, scan: bool = False) -> int:
     """Rebuild the collection from docs/ plus any chosen attack docs.
 
-    Returns how many chunks it holds.
+    With scan=True (defense #14), chunks the scanner flags are quarantined:
+    left out of the index, and logged in its metadata. Returns how many chunks it holds.
     """
     attacks = sorted(attacks or [])
     chunks = load_and_chunk() + load_attacks(attacks)
+    quarantined = []
+    if scan:
+        # Imported here, not at the top: scanner -> detectors -> rag -> vectorstore
+        # would be a circular import while this module is still loading.
+        from scanner import scan_chunk
+
+        kept = []
+        for c in chunks:
+            if reasons := scan_chunk(c["text"]):
+                quarantined.append({"id": f"{c['source']}:{c['chunk_index']}", "reasons": reasons})
+            else:
+                kept.append(c)
+        chunks = kept
     # Embed first: if Ollama fails here, the old index is still untouched.
     embeddings = embed([DOC_PREFIX + c["text"] for c in chunks])
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
@@ -45,6 +60,9 @@ def build_index(attacks: list[str] | None = None) -> int:
         metadata={
             "embed_model": EMBED_MODEL,  # checked when reading, see get_collection()
             "attacks": ",".join(attacks),  # which attack docs are in, see index_attacks()
+            # Chroma metadata only holds simple values, so the list is stored as JSON text.
+            "scan": scan,
+            "quarantined": json.dumps(quarantined),  # see index_scan_info()
         },
     )
 
@@ -78,6 +96,15 @@ def index_attacks() -> list[str]:
     """Names of the attack docs in the current index (empty list = clean)."""
     saved = (get_collection().metadata or {}).get("attacks", "")
     return saved.split(",") if saved else []
+
+
+def index_scan_info() -> dict:
+    """Whether the scanner ran on the current index, and what it quarantined."""
+    metadata = get_collection().metadata or {}
+    return {
+        "scan": bool(metadata.get("scan", False)),
+        "quarantined": json.loads(metadata.get("quarantined", "[]")),
+    }
 
 
 def retrieve(question: str, k: int = TOP_K) -> list[dict]:
