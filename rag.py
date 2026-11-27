@@ -3,7 +3,7 @@
 import httpx
 import ollama
 
-from vectorstore import retrieve
+from vectorstore import TOP_K, retrieve
 
 # Chat settings: change these to try a different setup.
 CHAT_MODEL = "llama3.2"
@@ -34,17 +34,23 @@ def build_messages(question: str, chunks: list[dict]) -> list[dict]:
     ]
 
 
-def answer(question: str) -> tuple[str, list[str]]:
-    """Retrieve context, ask the model, and return the answer and the retrieved files."""
-    chunks = retrieve(question)
+def answer(question: str, k: int = TOP_K) -> tuple[str, list[dict]]:
+    """Retrieve k chunks, ask the model, and return the answer and the chunks it was given."""
+    chunks = retrieve(question, k)
     response = ollama.chat(
         model=CHAT_MODEL,
         messages=build_messages(question, chunks),
         options={"temperature": TEMPERATURE, "seed": SEED},
     )
-    # Files that were retrieved, not proof the model used them. Unique, in rank order.
-    retrieved_files = list(dict.fromkeys(c["source"] for c in chunks))
-    return response.message.content, retrieved_files
+    return response.message.content, chunks
+
+
+def retrieved_files(chunks: list[dict]) -> list[str]:
+    """File names of the chunks, unique, in rank order.
+
+    These were retrieved, which is not proof the model used them.
+    """
+    return list(dict.fromkeys(c["source"] for c in chunks))
 
 
 if __name__ == "__main__":
@@ -55,10 +61,10 @@ if __name__ == "__main__":
             if question.lower() in ("", "quit", "exit"):
                 break
             try:
-                text, retrieved_files = answer(question)
+                text, chunks = answer(question)
             except EXPECTED_ERRORS as error:  # report and keep going
                 print(f"\nError: {error}")
                 continue
-            print(f"\n{text}\n\nRetrieved files: {', '.join(retrieved_files)}")
+            print(f"\n{text}\n\nRetrieved files: {', '.join(retrieved_files(chunks))}")
     except (KeyboardInterrupt, EOFError):  # Ctrl+C or Ctrl+D
         print()
