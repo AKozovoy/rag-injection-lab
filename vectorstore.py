@@ -38,6 +38,7 @@ def build_index() -> int:
     collection = client.create_collection(
         COLLECTION_NAME,
         configuration={"hnsw": {"space": DISTANCE}},
+        metadata={"embed_model": EMBED_MODEL},  # checked when reading, see get_collection()
     )
 
     collection.add(
@@ -54,7 +55,16 @@ def get_collection() -> chromadb.Collection:
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     if COLLECTION_NAME not in [c.name for c in client.list_collections()]:
         raise RuntimeError("Index not found: run `python vectorstore.py` first")
-    return client.get_collection(COLLECTION_NAME)
+    collection = client.get_collection(COLLECTION_NAME)
+
+    # Vectors from different models can't be compared, so refuse a mismatch.
+    built_with = (collection.metadata or {}).get("embed_model")
+    if built_with != EMBED_MODEL:
+        raise RuntimeError(
+            f"Index was built with {built_with} but EMBED_MODEL is {EMBED_MODEL}: "
+            "run `python vectorstore.py` to rebuild"
+        )
+    return collection
 
 
 def retrieve(question: str, k: int = TOP_K) -> list[dict]:
