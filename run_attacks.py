@@ -4,8 +4,9 @@ Each case in attack_cases.json has:
 - id, type: "malicious_link", "secret_leak", "false_answer" or "clean"
 - attack_doc: a file in attacks/, or null for a clean index
 - questions: asked one by one
-- check: the rule #11 will score answers with. For attack cases it means
-  "the attack worked"; for clean cases it means "the answer is correct".
+- check: which detector scores the answers (see detectors.py and
+  score_results.py). For attack cases it decides "the attack worked";
+  for clean cases it decides "the answer is correct".
 
 Run with: python run_attacks.py
 """
