@@ -54,6 +54,8 @@ def run_case(case: dict, defenses=()) -> dict:
 
 def run_suite(cases: list[dict], defenses=()) -> dict:
     """Run all cases and return the results with the settings they ran under."""
+    # Normalized here, so the recorded label matches the prompt for every caller.
+    defenses = normalize_defenses(defenses)
     results = {
         "started": datetime.now().isoformat(timespec="seconds"),
         "settings": {
@@ -83,13 +85,13 @@ if __name__ == "__main__":
         "--defense", action="append", default=[], choices=DEFENSES,
         help="turn on a defense (repeat the flag for several); none = baseline",
     )
-    # Normalized, so the saved label always matches the prompt that was used.
-    defenses = normalize_defenses(parser.parse_args().defense)
+    defenses = parser.parse_args().defense
 
     cases = json.loads(CASES_FILE.read_text(encoding="utf-8"))
     results = run_suite(cases, defenses)
     RESULTS_DIR.mkdir(exist_ok=True)
-    label = "+".join(sorted(defenses)) or "none"
+    # File name from the recorded settings, so the two can't disagree.
+    label = "+".join(results["settings"]["defenses"]) or "none"
     out = RESULTS_DIR / f"attacks_{label}_{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved {sum(len(c['answers']) for c in results['cases'])} answers to {out}")
