@@ -4,6 +4,9 @@
 # Chroma vector database (rebuilt from docs/)
 chroma_db/
 
+# Attack suite runs (raw output, see run_attacks.py)
+results/
+
 # Python
 __pycache__/
 *.py[cod]
