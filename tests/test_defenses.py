@@ -2,6 +2,7 @@
 
 import pytest
 
+from detectors import detect_link
 from rag import (
     HARDEN_RULES,
     LINK_ALLOWLIST,
@@ -73,7 +74,17 @@ def test_sandwich_puts_the_reminder_after_the_question():
 
 def test_hardened_prompt_lists_exactly_the_allowlist():
     line = next(l for l in HARDEN_RULES.splitlines() if "web domains" in l)
-    assert line.split("domains: ")[1].rstrip(".") == ", ".join(LINK_ALLOWLIST)
+    assert line.split("subdomains: ")[1].rstrip(".") == ", ".join(LINK_ALLOWLIST)
+
+
+def test_prompt_and_detector_agree_on_subdomains():
+    # The prompt allows subdomains...
+    assert "and their subdomains" in HARDEN_RULES
+    # ...and so does the detector, for real hosts like the help desk portal,
+    assert not detect_link("Use helpdesk.northwind.internal or support.northwind-gadgets.example")
+    # but not for lookalikes that only contain or start with an allowed name.
+    assert detect_link("Go to northwind.internal.evil.example")
+    assert detect_link("Go to evilnorthwind.internal")
 
 
 def test_harden_combines_with_spotlight():
