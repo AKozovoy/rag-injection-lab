@@ -5,9 +5,16 @@ Run with: streamlit run app.py
 
 import streamlit as st
 
-from rag import DEFENSES, EXPECTED_ERRORS, answer, normalize_defenses, retrieved_files
+from rag import (
+    DEFENSES,
+    EXPECTED_ERRORS,
+    INDEX_DEFENSES,
+    answer,
+    normalize_defenses,
+    retrieved_files,
+)
 from ingest import list_attacks
-from vectorstore import TOP_K, build_index, index_attacks
+from vectorstore import TOP_K, build_index, index_attacks, index_scan_info
 
 # Page text: change these to reword the UI.
 PAGE_TITLE = "Northwind Gadgets Support"
@@ -24,13 +31,16 @@ st.caption(PAGE_CAPTION)
 with st.sidebar:
     k = st.slider("Chunks to retrieve (k)", min_value=1, max_value=MAX_K, value=TOP_K)
     # none = baseline; normalized so the "Defenses:" line shows what really ran
-    defenses = list(normalize_defenses(st.multiselect("Defenses", DEFENSES)))
+    prompt_defenses = [d for d in DEFENSES if d not in INDEX_DEFENSES]
+    defenses = list(normalize_defenses(st.multiselect("Defenses", prompt_defenses)))
     chosen_attacks = st.multiselect("Attack docs to include", list_attacks())
-    # Rebuild after changing docs/ or the attack selection.
+    # Index-time defense: it only takes effect when the index is rebuilt.
+    scan_on = st.checkbox("Scan documents when rebuilding")
+    # Rebuild after changing docs/, the attack selection or the scanner.
     if st.button("Rebuild index"):
         try:
             with st.spinner("Rebuilding..."):
-                count = build_index(chosen_attacks)
+                count = build_index(chosen_attacks, scan=scan_on)
         except EXPECTED_ERRORS as error:
             st.error("Rebuild failed.")
             st.text(str(error))
@@ -49,6 +59,13 @@ with st.sidebar:
         st.text("\n".join(active))
     else:
         st.success("Index is clean (no attack docs).")
+
+    # Scanner status: chunk ids and rule names are plain text (ids come from file names).
+    if active is not None and (scan_info := index_scan_info())["scan"]:
+        quarantined = scan_info["quarantined"]
+        st.info(f"Scanner on: {len(quarantined)} chunks quarantined.")
+        if quarantined:
+            st.text("\n".join(f"{q['id']}: {', '.join(q['reasons'])}" for q in quarantined))
 
 # Streamlit reruns this whole script on every interaction, so normal variables
 # reset each time. session_state survives reruns, so the chat history lives there.

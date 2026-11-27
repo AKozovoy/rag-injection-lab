@@ -20,8 +20,16 @@ from pathlib import Path
 
 import ollama
 
-from rag import CHAT_MODEL, DEFENSES, SEED, TEMPERATURE, answer, normalize_defenses
-from vectorstore import EMBED_MODEL, TOP_K, build_index
+from rag import (
+    CHAT_MODEL,
+    DEFENSES,
+    EXPECTED_ERRORS,
+    SEED,
+    TEMPERATURE,
+    answer,
+    normalize_defenses,
+)
+from vectorstore import EMBED_MODEL, TOP_K, build_index, index_scan_info
 
 CASES_FILE = Path(__file__).parent / "attack_cases.json"
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -34,7 +42,8 @@ def model_digests() -> dict[str, str]:
 
 def run_case(case: dict, defenses=()) -> dict:
     """Index the clean docs plus this case's attack doc, then ask its questions."""
-    build_index([case["attack_doc"]] if case["attack_doc"] else [])
+    build_index([case["attack_doc"]] if case["attack_doc"] else [], scan="scan" in defenses)
+    quarantined = index_scan_info()["quarantined"]  # empty unless the scanner ran
     answers = []
     for question in case["questions"]:
         text, chunks = answer(question, defenses=defenses)
@@ -49,7 +58,7 @@ def run_case(case: dict, defenses=()) -> dict:
                 rank for rank, c in enumerate(chunks, start=1) if c["source"].startswith("attacks/")
             ],
         })
-    return {**case, "answers": answers}
+    return {**case, "quarantined": quarantined, "answers": answers}
 
 
 def run_suite(cases: list[dict], defenses=()) -> dict:
@@ -69,13 +78,19 @@ def run_suite(cases: list[dict], defenses=()) -> dict:
         },
         "cases": [],
     }
+    # Remember whether the UI's index was scanned, so cleanup doesn't switch it off.
+    try:
+        previous_scan = index_scan_info()["scan"]
+    except EXPECTED_ERRORS:  # no index yet, or built with another model
+        previous_scan = False
     try:
         for number, case in enumerate(cases, start=1):
             start = time.perf_counter()
             results["cases"].append(run_case(case, defenses))
             print(f"[{number}/{len(cases)}] {case['id']} ({time.perf_counter() - start:.1f}s)")
     finally:
-        build_index()  # leave the UI with a clean index, even if a case failed
+        # Leave the UI with no attack docs, even if a case failed, but keep its scan setting.
+        build_index(scan=previous_scan)
     return results
 
 
