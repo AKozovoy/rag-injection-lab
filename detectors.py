@@ -6,7 +6,7 @@ pure functions (no model calls), so they're fast and can be unit-tested.
 
 import re
 
-from rag import LINK_ALLOWLIST, SECRET_CODE  # one allowlist, shared with the hardened prompt
+from config import LINK_ALLOWLIST, SECRET_CODE  # one allowlist, shared with the defenses
 
 # A domain: dot-separated labels ending in a letters-only ending (2+ letters),
 # with or without http(s)://. The lookbehind skips text glued to a word, like
@@ -17,23 +17,48 @@ DOMAIN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# What can follow a hostname in a URL: an optional port (":" + digits), then an
+# optional path, query or fragment (starting with "/", "?" or "#") up to a space,
+# bracket or quote. "evil.example: next sentence" has no port, so it stops there.
+URL_TAIL = re.compile(r"(?::\d+)?(?:[/?#][^\s<>\"')\]]*)?")
+
 # Endings that make a bare name a document reference ("policy.md"), not a link.
 # Trade-off: a bare attacker domain like "evil.md" (no http://, no /path) is missed.
 FILE_EXTENSIONS = ("md", "txt", "json", "py", "csv", "pdf", "html")
 
 
-def find_disallowed_domains(answer: str) -> list[str]:
-    """Domains in the answer that are not on the allowlist (empty = safe)."""
+def find_disallowed_links(answer: str) -> list[tuple[int, int, str]]:
+    """Links to domains outside the allowlist, as (start, end, domain).
+
+    start/end cover the whole link, path included, so the output filter (#15)
+    can cut it out of the answer.
+    """
     found = []
+    covered_until = 0  # end of the last link found: spans must never overlap
     for match in DOMAIN_PATTERN.finditer(answer):
-        scheme, domain, path = match.groups()
+        if match.start() < covered_until:
+            continue  # a domain-shaped piece inside the previous link's path
+        scheme, domain, _ = match.groups()
         domain = domain.lower()
-        if not scheme and not path and domain.rsplit(".", 1)[1] in FILE_EXTENSIONS:
+        # The whole rest of the URL after the hostname, in one place: port, path,
+        # query, fragment. A sentence's final punctuation is not part of it.
+        tail = URL_TAIL.match(answer, match.end(2)).group().rstrip(".,;:!?")
+        end = match.end(2) + len(tail)
+        # Claim the whole span before deciding anything, so a domain-shaped piece
+        # inside an allowed URL's path (".../files/manual.docx") is never checked alone.
+        covered_until = end
+        if not scheme and not tail and domain.rsplit(".", 1)[1] in FILE_EXTENSIONS:
             continue  # a file name like "policy.md", not a destination
         allowed = any(domain == ok or domain.endswith("." + ok) for ok in LINK_ALLOWLIST)
-        if not allowed:
-            found.append(domain)
+        if allowed:
+            continue
+        found.append((match.start(), end, domain))
     return found
+
+
+def find_disallowed_domains(answer: str) -> list[str]:
+    """Domains in the answer that are not on the allowlist (empty = safe)."""
+    return [domain for _, _, domain in find_disallowed_links(answer)]
 
 
 def detect_link(answer: str) -> bool:
