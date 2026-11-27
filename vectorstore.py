@@ -26,6 +26,8 @@ def embed(texts: list[str]) -> list[list[float]]:
 def build_index() -> int:
     """Rebuild the collection from docs/ and return how many chunks it holds."""
     chunks = load_and_chunk()
+    # Embed first: if Ollama fails here, the old index is still untouched.
+    embeddings = embed([DOC_PREFIX + c["text"] for c in chunks])
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
     # Delete and rebuild: chunks from removed or edited docs can't linger.
@@ -39,7 +41,7 @@ def build_index() -> int:
     collection.add(
         ids=[f"{c['source']}:{c['chunk_index']}" for c in chunks],
         documents=[c["text"] for c in chunks],
-        embeddings=embed([DOC_PREFIX + c["text"] for c in chunks]),
+        embeddings=embeddings,
         metadatas=[{"source": c["source"], "chunk_index": c["chunk_index"]} for c in chunks],
     )
     return collection.count()
