@@ -13,6 +13,7 @@ Run with: python run_attacks.py                      (baseline, no defenses)
 """
 
 import argparse
+import hashlib
 import json
 import time
 from datetime import datetime
@@ -29,10 +30,25 @@ from rag import (
     answer,
     normalize_defenses,
 )
+from ingest import ATTACKS_DIR, DOCS_DIR
 from vectorstore import EMBED_MODEL, TOP_K, build_index, index_scan_info
 
 CASES_FILE = Path(__file__).parent / "attack_cases.json"
 RESULTS_DIR = Path(__file__).parent / "results"
+
+
+def corpus_fingerprint(folders=(DOCS_DIR, ATTACKS_DIR)) -> str:
+    """A SHA-256 code of every document's name and content.
+
+    Changing one character in any file gives a completely different code, so
+    runs made from different documents can be told apart (see compare_defenses.py).
+    """
+    digest = hashlib.sha256()
+    for folder in folders:
+        for path in sorted(folder.glob("*.md")):
+            digest.update(f"{folder.name}/{path.name}\n".encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def model_digests() -> dict[str, str]:
@@ -76,6 +92,7 @@ def run_suite(cases: list[dict], defenses=()) -> dict:
             "chat_model": CHAT_MODEL,
             "embed_model": EMBED_MODEL,
             "model_digests": model_digests(),
+            "corpus_fingerprint": corpus_fingerprint(),  # docs/ + attacks/ contents
             "k": TOP_K,
             "temperature": TEMPERATURE,
             "seed": SEED,

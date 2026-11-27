@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-27T16:24:49",
+  "generated": "2026-11-27T16:27:48",
   "settings": {
     "chat_model": "llama3.2",
     "embed_model": "nomic-embed-text",
@@ -9,7 +9,8 @@
     },
     "k": 3,
     "temperature": 0,
-    "seed": 42
+    "seed": 42,
+    "corpus_fingerprint": null
   },
   "configs": {
     "none": [],

@@ -16,7 +16,8 @@ from compare_defenses import (
 
 LEAK = "SECRET_CODE=NW-7731-ALPHA"
 SETTINGS = {"chat_model": "llama3.2", "embed_model": "nomic-embed-text",
-            "model_digests": {"llama3.2:latest": "a80c"}, "k": 3, "temperature": 0, "seed": 42}
+            "model_digests": {"llama3.2:latest": "a80c"}, "k": 3, "temperature": 0, "seed": 42,
+            "corpus_fingerprint": "abc123"}
 
 
 def test_compare_outcomes_matches_by_question():
@@ -42,6 +43,7 @@ def _run(secret_answers, clean_answer="You have 30 days.", latency=1.0):
     """A tiny saved run: one secret case (questions A, B, C...) and one clean case."""
     return {"settings": copy.deepcopy(SETTINGS), "cases": [
         {"id": "secret_v1_direct", "type": "secret_leak", "check": {},
+         "attack_doc": "secret_v1_direct.md",
          "answers": [{"question": chr(65 + i), "answer": a, "latency_s": latency}
                      for i, a in enumerate(secret_answers)]},
         {"id": "clean_refund_window", "type": "clean", "check": {},
@@ -75,14 +77,18 @@ def test_matching_runs_are_compatible():
     check_compatible({"none": _run([LEAK]), "scan": _run(["no leak"])})
 
 
-@pytest.mark.parametrize("change", ["digest", "k", "questions"])
+@pytest.mark.parametrize("change", ["digest", "k", "questions", "attack_doc", "fingerprint"])
 def test_mismatched_runs_are_refused(change):
     other = _run([LEAK])
     if change == "digest":
         other["settings"]["model_digests"] = {"llama3.2:latest": "ffff"}
     elif change == "k":
         other["settings"]["k"] = 5
-    else:
+    elif change == "questions":
         other["cases"][0]["answers"][0]["question"] = "a different question"
+    elif change == "attack_doc":
+        other["cases"][0]["attack_doc"] = "secret_v1_reworded.md"
+    else:
+        other["settings"]["corpus_fingerprint"] = "def456"  # same names, edited content
     with pytest.raises(ValueError):
         check_compatible({"none": _run([LEAK]), "scan": other})

@@ -56,11 +56,18 @@ def latest_saved_run(defenses) -> tuple[Path, dict]:
 
 
 # Settings that must match for runs to be comparable (defenses and start time may differ).
-BENCHMARK_SETTINGS = ("chat_model", "embed_model", "model_digests", "k", "temperature", "seed")
+# Runs made before corpus_fingerprint existed don't have it; "missing" matches "missing".
+BENCHMARK_SETTINGS = (
+    "chat_model", "embed_model", "model_digests", "k", "temperature", "seed", "corpus_fingerprint",
+)
 
 
 def _questions(results: dict) -> set[tuple[str, str]]:
     return {(c["id"], a["question"]) for c in results["cases"] for a in c["answers"]}
+
+
+def _attack_docs(results: dict) -> dict[str, str | None]:
+    return {c["id"]: c.get("attack_doc") for c in results["cases"]}
 
 
 def check_compatible(runs: dict[str, dict]) -> None:
@@ -76,6 +83,8 @@ def check_compatible(runs: dict[str, dict]) -> None:
                 raise ValueError(f"run for '{name}' has a different {key} than the baseline")
         if _questions(results) != _questions(reference):
             raise ValueError(f"run for '{name}' asked different questions than the baseline")
+        if _attack_docs(results) != _attack_docs(reference):
+            raise ValueError(f"run for '{name}' used different attack docs than the baseline")
 
 
 def compare_outcomes(baseline: dict[tuple, bool], defense: dict[tuple, bool]) -> dict:
@@ -167,7 +176,7 @@ def save(rows: list[dict], settings: dict, sources: dict[str, str]) -> None:
     report = {
         "generated": datetime.now().isoformat(timespec="seconds"),
         # Shared by every run (checked by check_compatible).
-        "settings": {k: settings[k] for k in BENCHMARK_SETTINGS},
+        "settings": {k: settings.get(k) for k in BENCHMARK_SETTINGS},
         "configs": {name: list(normalize_defenses(d)) for name, d in CONFIGS.items()},
         "sources": sources,  # which saved run file each config's numbers came from
         "rows": rows,
