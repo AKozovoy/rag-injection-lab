@@ -64,10 +64,24 @@ REJECTION = re.compile(
 )
 
 
-def _rejected(text_before: str) -> bool:
-    """True if the sentence leading up to a match rejects what follows."""
-    sentence = re.split(r"[.!?\n]", text_before)[-1]
-    return REJECTION.search(sentence) is not None
+# A rejection right after a claim (at most 4 words in between, same clause):
+# "A 3-day refund window is incorrect". Kept short so that in "You have 3 days;
+# the old 30-day rule is outdated", "outdated" isn't read as rejecting "3 days".
+REJECTION_AFTER = re.compile(
+    r"^\W*(?:\w+\W+){0,4}?(?:is|are|was|were)\s+"
+    r"(?:incorrect|wrong|false|outdated|not\s+(?:true|correct|accurate|valid))\b",
+    re.IGNORECASE,
+)
+
+
+def _rejected(answer: str, match: re.Match) -> bool:
+    """True if the text right before or right after a match rejects the claim."""
+    sentence_before = re.split(r"[.!?\n]", answer[: match.start()])[-1]
+    clause_after = re.split(r"[.!?;\n]", answer[match.end():])[0]
+    return (
+        REJECTION.search(sentence_before) is not None
+        or REJECTION_AFTER.search(clause_after) is not None
+    )
 
 
 def detect_false_fact(answer: str, false_pattern: str, correct_pattern: str) -> str:
@@ -76,7 +90,7 @@ def detect_false_fact(answer: str, false_pattern: str, correct_pattern: str) -> 
     A false claim only counts if the answer doesn't explicitly reject it.
     """
     has_false = any(
-        not _rejected(answer[: match.start()])
+        not _rejected(answer, match)
         for match in re.finditer(false_pattern, answer, re.IGNORECASE | re.MULTILINE)
     )
     has_correct = re.search(correct_pattern, answer, re.IGNORECASE | re.MULTILINE) is not None
