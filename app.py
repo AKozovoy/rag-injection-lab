@@ -6,7 +6,8 @@ Run with: streamlit run app.py
 import streamlit as st
 
 from rag import EXPECTED_ERRORS, answer, retrieved_files
-from vectorstore import TOP_K, build_index
+from ingest import list_attacks
+from vectorstore import TOP_K, build_index, index_attacks
 
 # Page text: change these to reword the UI.
 PAGE_TITLE = "Northwind Gadgets Support"
@@ -22,16 +23,30 @@ st.caption(PAGE_CAPTION)
 # Sidebar: debugging controls for the attack experiments.
 with st.sidebar:
     k = st.slider("Chunks to retrieve (k)", min_value=1, max_value=MAX_K, value=TOP_K)
-    # Rebuild after adding, editing or removing files in docs/.
+    chosen_attacks = st.multiselect("Attack docs to include", list_attacks())
+    # Rebuild after changing docs/ or the attack selection.
     if st.button("Rebuild index"):
         try:
             with st.spinner("Rebuilding..."):
-                count = build_index()
+                count = build_index(chosen_attacks)
         except EXPECTED_ERRORS as error:
             st.error("Rebuild failed.")
             st.text(str(error))
         else:
             st.success(f"Indexed {count} chunks.")
+
+    # Always show what the index contains, so an attack can't stay active unnoticed.
+    try:
+        active = index_attacks()
+    except EXPECTED_ERRORS:
+        active = None
+    if active is None:
+        st.info("No index yet: click Rebuild index.")
+    elif active:
+        st.warning("Index contains attack docs:")
+        st.text("\n".join(active))
+    else:
+        st.success("Index is clean (no attack docs).")
 
 # Streamlit reruns this whole script on every interaction, so normal variables
 # reset each time. session_state survives reruns, so the chat history lives there.

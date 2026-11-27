@@ -6,7 +6,7 @@ from pathlib import Path
 import chromadb
 import ollama
 
-from ingest import load_and_chunk
+from ingest import load_and_chunk, load_attacks
 
 # Vector store settings: change these to try a different setup.
 CHROMA_DIR = Path(__file__).parent / "chroma_db"
@@ -25,9 +25,13 @@ def embed(texts: list[str]) -> list[list[float]]:
     return [list(vector) for vector in response.embeddings]
 
 
-def build_index() -> int:
-    """Rebuild the collection from docs/ and return how many chunks it holds."""
-    chunks = load_and_chunk()
+def build_index(attacks: list[str] | None = None) -> int:
+    """Rebuild the collection from docs/ plus any chosen attack docs.
+
+    Returns how many chunks it holds.
+    """
+    attacks = sorted(attacks or [])
+    chunks = load_and_chunk() + load_attacks(attacks)
     # Embed first: if Ollama fails here, the old index is still untouched.
     embeddings = embed([DOC_PREFIX + c["text"] for c in chunks])
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
@@ -38,7 +42,10 @@ def build_index() -> int:
     collection = client.create_collection(
         COLLECTION_NAME,
         configuration={"hnsw": {"space": DISTANCE}},
-        metadata={"embed_model": EMBED_MODEL},  # checked when reading, see get_collection()
+        metadata={
+            "embed_model": EMBED_MODEL,  # checked when reading, see get_collection()
+            "attacks": ",".join(attacks),  # which attack docs are in, see index_attacks()
+        },
     )
 
     collection.add(
@@ -65,6 +72,12 @@ def get_collection() -> chromadb.Collection:
             "run `python vectorstore.py` to rebuild"
         )
     return collection
+
+
+def index_attacks() -> list[str]:
+    """Names of the attack docs in the current index (empty list = clean)."""
+    saved = (get_collection().metadata or {}).get("attacks", "")
+    return saved.split(",") if saved else []
 
 
 def retrieve(question: str, k: int = TOP_K) -> list[dict]:
