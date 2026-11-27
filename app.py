@@ -5,7 +5,7 @@ Run with: streamlit run app.py
 
 import streamlit as st
 
-from rag import DEFENSES, EXPECTED_ERRORS, answer, retrieved_files
+from rag import DEFENSES, EXPECTED_ERRORS, answer, normalize_defenses, retrieved_files
 from ingest import list_attacks
 from vectorstore import TOP_K, build_index, index_attacks
 
@@ -23,7 +23,8 @@ st.caption(PAGE_CAPTION)
 # Sidebar: debugging controls for the attack experiments.
 with st.sidebar:
     k = st.slider("Chunks to retrieve (k)", min_value=1, max_value=MAX_K, value=TOP_K)
-    defenses = st.multiselect("Defenses", DEFENSES)  # none = baseline
+    # none = baseline; normalized so the "Defenses:" line shows what really ran
+    defenses = list(normalize_defenses(st.multiselect("Defenses", DEFENSES)))
     chosen_attacks = st.multiselect("Attack docs to include", list_attacks())
     # Rebuild after changing docs/ or the attack selection.
     if st.button("Rebuild index"):

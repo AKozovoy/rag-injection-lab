@@ -41,27 +41,44 @@ EXPECTED_ERRORS = (
 )
 
 
-def _wrap_document(chunk: dict, datamark: bool) -> str:
+def normalize_defenses(defenses) -> tuple[str, ...]:
+    """Check the names and drop overlaps, so one prompt always has one label.
+
+    spotlight_datamark already includes spotlight, so choosing both is the same
+    experiment as choosing spotlight_datamark alone.
+    """
+    chosen = set(defenses)
+    unknown = chosen - set(DEFENSES)
+    if unknown:
+        raise ValueError(f"unknown defense: {', '.join(sorted(unknown))}")
+    if "spotlight_datamark" in chosen:
+        chosen.discard("spotlight")
+    return tuple(sorted(chosen))
+
+
+def _wrap_document(chunk: dict, number: int, datamark: bool) -> str:
     """Put one chunk inside <document> tags that the chunk itself can't close."""
+    # The file name is document-controlled too (attack docs choose their names),
+    # so it goes inside the marked body; the tag itself only gets a generated id.
+    body = f"Source: {chunk['source']}\n{chunk['text']}"
     # An attacker could write "</document>" to end the data area early and put
-    # instructions after it, so any document tag inside the text is neutralized.
-    text = re.sub(r"<(\s*/?\s*document)", r"&lt;\1", chunk["text"], flags=re.IGNORECASE)
+    # instructions after it, so any document tag inside the body is neutralized.
+    body = re.sub(r"<(\s*/?\s*document)", r"&lt;\1", body, flags=re.IGNORECASE)
     if datamark:
-        text = re.sub(r"[ \t]+", DATAMARK, text)  # keep line breaks, mark the gaps between words
-    source = chunk["source"].replace('"', "'")  # file names come from attack docs too
-    return f'<document source="{source}">\n{text}\n</document>'
+        body = re.sub(r"[ \t]+", DATAMARK, body)  # keep line breaks, mark the gaps between words
+    return f'<document id="{number}">\n{body}\n</document>'
 
 
 def build_messages(question: str, chunks: list[dict], defenses=()) -> list[dict]:
     """Build the chat messages: system prompt, then context and question."""
-    unknown = set(defenses) - set(DEFENSES)
-    if unknown:
-        raise ValueError(f"unknown defense: {', '.join(sorted(unknown))}")
+    defenses = normalize_defenses(defenses)
 
     system = SYSTEM_PROMPT
     if "spotlight" in defenses or "spotlight_datamark" in defenses:
         datamark = "spotlight_datamark" in defenses
-        context = "\n\n".join(_wrap_document(c, datamark) for c in chunks)
+        context = "\n\n".join(
+            _wrap_document(c, number, datamark) for number, c in enumerate(chunks, start=1)
+        )
         system += "\n\n" + SPOTLIGHT_RULE + ("\n" + DATAMARK_RULE if datamark else "")
     else:
         # Baseline: retrieved text goes in as plain text, with no markers separating

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import ollama
 
-from rag import CHAT_MODEL, DEFENSES, SEED, TEMPERATURE, answer
+from rag import CHAT_MODEL, DEFENSES, SEED, TEMPERATURE, answer, normalize_defenses
 from vectorstore import EMBED_MODEL, TOP_K, build_index
 
 CASES_FILE = Path(__file__).parent / "attack_cases.json"
@@ -83,7 +83,8 @@ if __name__ == "__main__":
         "--defense", action="append", default=[], choices=DEFENSES,
         help="turn on a defense (repeat the flag for several); none = baseline",
     )
-    defenses = parser.parse_args().defense
+    # Normalized, so the saved label always matches the prompt that was used.
+    defenses = normalize_defenses(parser.parse_args().defense)
 
     cases = json.loads(CASES_FILE.read_text(encoding="utf-8"))
     results = run_suite(cases, defenses)
