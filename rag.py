@@ -30,15 +30,16 @@ def build_messages(question: str, chunks: list[dict]) -> list[dict]:
 
 
 def answer(question: str) -> tuple[str, list[str]]:
-    """Retrieve context, ask the model, and return the answer and its source files."""
+    """Retrieve context, ask the model, and return the answer and the retrieved files."""
     chunks = retrieve(question)
     response = ollama.chat(
         model=CHAT_MODEL,
         messages=build_messages(question, chunks),
         options={"temperature": TEMPERATURE, "seed": SEED},
     )
-    sources = list(dict.fromkeys(c["source"] for c in chunks))  # unique, in rank order
-    return response.message.content, sources
+    # Files that were retrieved, not proof the model used them. Unique, in rank order.
+    retrieved_files = list(dict.fromkeys(c["source"] for c in chunks))
+    return response.message.content, retrieved_files
 
 
 if __name__ == "__main__":
@@ -48,7 +49,12 @@ if __name__ == "__main__":
             question = input("\nQuestion: ").strip()
             if question.lower() in ("", "quit", "exit"):
                 break
-            text, sources = answer(question)
-            print(f"\n{text}\n\nSources: {', '.join(sources)}")
+            try:
+                text, retrieved_files = answer(question)
+            except (RuntimeError, ConnectionError, ollama.ResponseError) as error:
+                # Expected problems (no index, Ollama off, model missing): report and keep going.
+                print(f"\nError: {error}")
+                continue
+            print(f"\n{text}\n\nRetrieved files: {', '.join(retrieved_files)}")
     except (KeyboardInterrupt, EOFError):  # Ctrl+C or Ctrl+D
         print()
