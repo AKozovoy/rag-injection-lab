@@ -47,8 +47,13 @@ def build_index(attacks: list[str] | None = None, scan: bool = False) -> int:
             else:
                 kept.append(c)
         chunks = kept
+    # Attack docs with at least one chunk actually going in (fully quarantined ones don't count).
+    attacks_in_index = sorted(
+        {c["source"].removeprefix("attacks/") for c in chunks if c["source"].startswith("attacks/")}
+    )
     # Embed first: if Ollama fails here, the old index is still untouched.
-    embeddings = embed([DOC_PREFIX + c["text"] for c in chunks])
+    # If the scanner quarantined everything, there is nothing to embed.
+    embeddings = embed([DOC_PREFIX + c["text"] for c in chunks]) if chunks else []
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
     # Delete and rebuild: chunks from removed or edited docs can't linger.
@@ -59,19 +64,21 @@ def build_index(attacks: list[str] | None = None, scan: bool = False) -> int:
         configuration={"hnsw": {"space": DISTANCE}},
         metadata={
             "embed_model": EMBED_MODEL,  # checked when reading, see get_collection()
-            "attacks": ",".join(attacks),  # which attack docs are in, see index_attacks()
+            "attacks": ",".join(attacks),  # attack docs selected for this build
+            "attacks_in_index": ",".join(attacks_in_index),  # see index_attacks()
             # Chroma metadata only holds simple values, so the list is stored as JSON text.
             "scan": scan,
             "quarantined": json.dumps(quarantined),  # see index_scan_info()
         },
     )
 
-    collection.add(
-        ids=[f"{c['source']}:{c['chunk_index']}" for c in chunks],
-        documents=[c["text"] for c in chunks],
-        embeddings=embeddings,
-        metadatas=[{"source": c["source"], "chunk_index": c["chunk_index"]} for c in chunks],
-    )
+    if chunks:  # an empty collection still keeps its metadata (and the quarantine log)
+        collection.add(
+            ids=[f"{c['source']}:{c['chunk_index']}" for c in chunks],
+            documents=[c["text"] for c in chunks],
+            embeddings=embeddings,
+            metadatas=[{"source": c["source"], "chunk_index": c["chunk_index"]} for c in chunks],
+        )
     return collection.count()
 
 
@@ -93,8 +100,13 @@ def get_collection() -> chromadb.Collection:
 
 
 def index_attacks() -> list[str]:
-    """Names of the attack docs in the current index (empty list = clean)."""
-    saved = (get_collection().metadata or {}).get("attacks", "")
+    """Attack docs with at least one chunk in the current index (empty list = clean).
+
+    A selected attack doc that the scanner fully quarantined is not listed.
+    """
+    metadata = get_collection().metadata or {}
+    # Indexes built before this field existed only have the selected list.
+    saved = metadata.get("attacks_in_index", metadata.get("attacks", ""))
     return saved.split(",") if saved else []
 
 
@@ -109,7 +121,10 @@ def index_scan_info() -> dict:
 
 def retrieve(question: str, k: int = TOP_K) -> list[dict]:
     """Return the k chunks closest in meaning to the question."""
-    results = get_collection().query(
+    collection = get_collection()
+    if collection.count() == 0:  # e.g. the scanner quarantined everything
+        return []
+    results = collection.query(
         query_embeddings=embed([QUERY_PREFIX + question]),
         n_results=k,
     )
