@@ -10,6 +10,7 @@ from compare_defenses import (
     build_rows,
     check_compatible,
     compare_outcomes,
+    corpus_verified,
     run_label,
     summarize,
 )
@@ -71,6 +72,14 @@ def test_rows_show_blocked_and_new_wins(monkeypatch):
     assert secret["scan"]["block_rate"] == 0.5
     link = next(r for r in build_rows(summaries) if r["attack_type"] == "malicious_link")
     assert link["attack_success_rate"] is None and link["block_rate"] is None
+
+
+def test_corpus_verified_needs_one_real_fingerprint():
+    assert corpus_verified({"none": _run([LEAK]), "scan": _run([LEAK])})
+    legacy = _run([LEAK])
+    legacy["settings"].pop("corpus_fingerprint")
+    assert not corpus_verified({"none": _run([LEAK]), "scan": legacy})  # one missing
+    assert not corpus_verified({"none": legacy, "scan": copy.deepcopy(legacy)})  # all missing
 
 
 def test_matching_runs_are_compatible():

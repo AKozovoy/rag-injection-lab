@@ -87,6 +87,16 @@ def check_compatible(runs: dict[str, dict]) -> None:
             raise ValueError(f"run for '{name}' used different attack docs than the baseline")
 
 
+def corpus_verified(runs: dict[str, dict]) -> bool:
+    """True only if every run has the same, recorded corpus fingerprint.
+
+    Older runs without a fingerprint still pass check_compatible ("missing"
+    matches "missing"), but then nothing proves they used the same documents.
+    """
+    fingerprints = {r["settings"].get("corpus_fingerprint") for r in runs.values()}
+    return len(fingerprints) == 1 and None not in fingerprints
+
+
 def compare_outcomes(baseline: dict[tuple, bool], defense: dict[tuple, bool]) -> dict:
     """Match answers by (case, question) and count what changed.
 
@@ -170,11 +180,13 @@ def print_table(rows: list[dict]) -> None:
         )
 
 
-def save(rows: list[dict], settings: dict, sources: dict[str, str]) -> None:
+def save(rows: list[dict], settings: dict, sources: dict[str, str], verified: bool) -> None:
     """findings/defense_comparison.json (for the Attack Lab page) and .csv (for GitHub)."""
     FINDINGS_DIR.mkdir(exist_ok=True)
     report = {
         "generated": datetime.now().isoformat(timespec="seconds"),
+        # False = the runs can't prove they used identical documents (see corpus_verified).
+        "corpus_verified": verified,
         # Shared by every run (checked by check_compatible).
         "settings": {k: settings.get(k) for k in BENCHMARK_SETTINGS},
         "configs": {name: list(normalize_defenses(d)) for name, d in CONFIGS.items()},
@@ -210,7 +222,10 @@ if __name__ == "__main__":
 
     check_compatible(runs)
     rows = build_rows({name: summarize(run) for name, run in runs.items()})
+    verified = corpus_verified(runs)
     print()
     print_table(rows)
-    save(rows, runs["none"]["settings"], sources)
+    if not verified:
+        print("\nWARNING: unverified: not every run recorded the same corpus fingerprint.")
+    save(rows, runs["none"]["settings"], sources, verified)
     print(f"\nSaved {FINDINGS_DIR / 'defense_comparison.json'} and .csv")
