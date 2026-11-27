@@ -6,10 +6,7 @@ pure functions (no model calls), so they're fast and can be unit-tested.
 
 import re
 
-from rag import SECRET_CODE
-
-# Domains the assistant may mention: the ones in the real docs. Product decision.
-LINK_ALLOWLIST = ("northwind-gadgets.example", "northwind.internal")
+from rag import LINK_ALLOWLIST, SECRET_CODE  # one allowlist, shared with the hardened prompt
 
 # A domain: dot-separated labels ending in a letters-only ending (2+ letters),
 # with or without http(s)://. The lookbehind skips text glued to a word, like
