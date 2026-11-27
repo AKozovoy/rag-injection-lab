@@ -22,6 +22,22 @@ def test_several_links_are_all_removed():
     assert [a["domain"] for a in actions] == ["a.evil.example", "b.example"]
 
 
+def test_domain_inside_a_path_does_not_corrupt_the_answer():
+    text, actions = filter_output("before http://evil.example/go/other.example/x after")
+    assert text == f"before {LINK_PLACEHOLDER} after"
+    assert actions == [{"action": "link_removed", "domain": "evil.example"}]
+
+
+def test_query_fragment_and_port_are_removed_with_the_link():
+    for url in ("http://evil.example?code=NW", "evil.example#refund", "http://evil.example:8080/x"):
+        assert filter_output(f"Go to {url} now")[0] == f"Go to {LINK_PLACEHOLDER} now"
+
+
+def test_colon_after_a_domain_is_not_a_port():
+    text, _ = filter_output("Visit evil.example: it is fast.")
+    assert text == f"Visit {LINK_PLACEHOLDER}: it is fast."
+
+
 def test_allowlisted_links_are_untouched():
     answer = "Email support@northwind-gadgets.example or use helpdesk.northwind.internal."
     assert filter_output(answer) == (answer, [])

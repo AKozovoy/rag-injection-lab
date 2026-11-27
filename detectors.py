@@ -17,6 +17,11 @@ DOMAIN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# What can follow a hostname in a URL: an optional port (":" + digits), then an
+# optional path, query or fragment (starting with "/", "?" or "#") up to a space,
+# bracket or quote. "evil.example: next sentence" has no port, so it stops there.
+URL_TAIL = re.compile(r"(?::\d+)?(?:[/?#][^\s<>\"')\]]*)?")
+
 # Endings that make a bare name a document reference ("policy.md"), not a link.
 # Trade-off: a bare attacker domain like "evil.md" (no http://, no /path) is missed.
 FILE_EXTENSIONS = ("md", "txt", "json", "py", "csv", "pdf", "html")
@@ -29,19 +34,23 @@ def find_disallowed_links(answer: str) -> list[tuple[int, int, str]]:
     can cut it out of the answer.
     """
     found = []
+    covered_until = 0  # end of the last link found: spans must never overlap
     for match in DOMAIN_PATTERN.finditer(answer):
-        scheme, domain, path = match.groups()
+        if match.start() < covered_until:
+            continue  # a domain-shaped piece inside the previous link's path
+        scheme, domain, _ = match.groups()
         domain = domain.lower()
-        if not scheme and not path and domain.rsplit(".", 1)[1] in FILE_EXTENSIONS:
+        # The whole rest of the URL after the hostname, in one place: port, path,
+        # query, fragment. A sentence's final punctuation is not part of it.
+        tail = URL_TAIL.match(answer, match.end(2)).group().rstrip(".,;:!?")
+        if not scheme and not tail and domain.rsplit(".", 1)[1] in FILE_EXTENSIONS:
             continue  # a file name like "policy.md", not a destination
         allowed = any(domain == ok or domain.endswith("." + ok) for ok in LINK_ALLOWLIST)
         if allowed:
             continue
-        end = match.end()
-        if path:  # include the rest of the URL, but not a sentence's final punctuation
-            rest = re.match(r"[^\s<>\"')\]]*", answer[end:]).group().rstrip(".,;:!?")
-            end += len(rest)
+        end = match.end(2) + len(tail)
         found.append((match.start(), end, domain))
+        covered_until = end
     return found
 
 
