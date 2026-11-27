@@ -8,13 +8,15 @@ false alarms and average answer latency.
 Run with: python compare_defenses.py              (runs all configs, ~10 minutes)
       or: python compare_defenses.py --from-saved (newest saved run per config, no model calls)
 
-Raw runs stay in results/ (not committed); the table goes to findings/ (committed).
+Raw runs stay in results/ (not committed); the table goes to findings/ (committed),
+with the 9 runs behind it copied to findings/runs/.
 """
 
 import argparse
 import csv
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -180,6 +182,17 @@ def print_table(rows: list[dict]) -> None:
         )
 
 
+def copy_source_runs(paths: dict[str, Path]) -> None:
+    """Copy the runs behind the table into findings/runs/, so the findings are
+    self-contained (results/ isn't committed) and the Attack Lab page can drill down."""
+    runs_dir = FINDINGS_DIR / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    for old in runs_dir.glob("attacks_*.json"):  # drop runs from an earlier table
+        old.unlink()
+    for path in paths.values():
+        shutil.copy2(path, runs_dir / path.name)
+
+
 def save(rows: list[dict], settings: dict, sources: dict[str, str], verified: bool) -> None:
     """findings/defense_comparison.json (for the Attack Lab page) and .csv (for GitHub)."""
     FINDINGS_DIR.mkdir(exist_ok=True)
@@ -208,7 +221,7 @@ if __name__ == "__main__":
     from_saved = parser.parse_args().from_saved
 
     cases = json.loads(CASES_FILE.read_text(encoding="utf-8"))
-    runs, sources = {}, {}
+    runs, sources, paths = {}, {}, {}
     for name, defenses in CONFIGS.items():
         if from_saved:
             path, runs[name] = latest_saved_run(defenses)
@@ -218,7 +231,7 @@ if __name__ == "__main__":
             RESULTS_DIR.mkdir(exist_ok=True)
             path = RESULTS_DIR / f"attacks_{run_label(defenses)}_{datetime.now():%Y%m%d-%H%M%S}.json"
             path.write_text(json.dumps(runs[name], indent=2, ensure_ascii=False), encoding="utf-8")
-        sources[name] = path.name
+        sources[name], paths[name] = path.name, path
 
     check_compatible(runs)
     rows = build_rows({name: summarize(run) for name, run in runs.items()})
@@ -228,4 +241,5 @@ if __name__ == "__main__":
     if not verified:
         print("\nWARNING: unverified: not every run recorded the same corpus fingerprint.")
     save(rows, runs["none"]["settings"], sources, verified)
+    copy_source_runs(paths)
     print(f"\nSaved {FINDINGS_DIR / 'defense_comparison.json'} and .csv")
