@@ -1,5 +1,6 @@
 """Answer questions about the docs with llama3.2, using retrieved chunks as context."""
 
+import httpx
 import ollama
 
 from vectorstore import retrieve
@@ -51,8 +52,8 @@ if __name__ == "__main__":
                 break
             try:
                 text, retrieved_files = answer(question)
-            except (RuntimeError, ConnectionError, ollama.ResponseError) as error:
-                # Expected problems (no index, Ollama off, model missing): report and keep going.
+            except (RuntimeError, ConnectionError, ollama.ResponseError, httpx.TransportError) as error:
+                # Expected problems (no index, Ollama off or dropped, model missing): report and keep going.
                 print(f"\nError: {error}")
                 continue
             print(f"\n{text}\n\nRetrieved files: {', '.join(retrieved_files)}")
