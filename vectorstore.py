@@ -7,6 +7,7 @@ from pathlib import Path
 import chromadb
 import ollama
 
+import scanner  # module import (not "from"), so tests can swap scanner.scan_chunk
 from ingest import load_and_chunk, load_attacks
 
 # Vector store settings: change these to try a different setup.
@@ -36,13 +37,9 @@ def build_index(attacks: list[str] | None = None, scan: bool = False) -> int:
     chunks = load_and_chunk() + load_attacks(attacks)
     quarantined = []
     if scan:
-        # Imported here, not at the top: scanner -> detectors -> rag -> vectorstore
-        # would be a circular import while this module is still loading.
-        from scanner import scan_chunk
-
         kept = []
         for c in chunks:
-            if reasons := scan_chunk(c["text"]):
+            if reasons := scanner.scan_chunk(c["text"]):
                 quarantined.append({"id": f"{c['source']}:{c['chunk_index']}", "reasons": reasons})
             else:
                 kept.append(c)

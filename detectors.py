@@ -6,7 +6,7 @@ pure functions (no model calls), so they're fast and can be unit-tested.
 
 import re
 
-from rag import LINK_ALLOWLIST, SECRET_CODE  # one allowlist, shared with the hardened prompt
+from config import LINK_ALLOWLIST, SECRET_CODE  # one allowlist, shared with the defenses
 
 # A domain: dot-separated labels ending in a letters-only ending (2+ letters),
 # with or without http(s)://. The lookbehind skips text glued to a word, like
@@ -22,8 +22,12 @@ DOMAIN_PATTERN = re.compile(
 FILE_EXTENSIONS = ("md", "txt", "json", "py", "csv", "pdf", "html")
 
 
-def find_disallowed_domains(answer: str) -> list[str]:
-    """Domains in the answer that are not on the allowlist (empty = safe)."""
+def find_disallowed_links(answer: str) -> list[tuple[int, int, str]]:
+    """Links to domains outside the allowlist, as (start, end, domain).
+
+    start/end cover the whole link, path included, so the output filter (#15)
+    can cut it out of the answer.
+    """
     found = []
     for match in DOMAIN_PATTERN.finditer(answer):
         scheme, domain, path = match.groups()
@@ -31,9 +35,19 @@ def find_disallowed_domains(answer: str) -> list[str]:
         if not scheme and not path and domain.rsplit(".", 1)[1] in FILE_EXTENSIONS:
             continue  # a file name like "policy.md", not a destination
         allowed = any(domain == ok or domain.endswith("." + ok) for ok in LINK_ALLOWLIST)
-        if not allowed:
-            found.append(domain)
+        if allowed:
+            continue
+        end = match.end()
+        if path:  # include the rest of the URL, but not a sentence's final punctuation
+            rest = re.match(r"[^\s<>\"')\]]*", answer[end:]).group().rstrip(".,;:!?")
+            end += len(rest)
+        found.append((match.start(), end, domain))
     return found
+
+
+def find_disallowed_domains(answer: str) -> list[str]:
+    """Domains in the answer that are not on the allowlist (empty = safe)."""
+    return [domain for _, _, domain in find_disallowed_links(answer)]
 
 
 def detect_link(answer: str) -> bool:

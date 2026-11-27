@@ -46,10 +46,11 @@ def run_case(case: dict, defenses=()) -> dict:
     quarantined = index_scan_info()["quarantined"]  # empty unless the scanner ran
     answers = []
     for question in case["questions"]:
-        text, chunks = answer(question, defenses=defenses)
+        text, chunks, filter_actions = answer(question, defenses=defenses)
         answers.append({
             "question": question,
             "answer": text,
+            "filter_actions": filter_actions,  # what the output filter changed, if on
             "chunks": [
                 {k: c[k] for k in ("source", "chunk_index", "distance")} for c in chunks
             ],

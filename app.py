@@ -14,6 +14,7 @@ from rag import (
     retrieved_files,
 )
 from ingest import list_attacks
+from output_filter import describe_actions
 from vectorstore import TOP_K, build_index, index_attacks, index_scan_info
 
 # Page text: change these to reword the UI.
@@ -88,6 +89,8 @@ def show(message: dict) -> None:
         if chunks := message.get("chunks"):
             st.text(f"Retrieved files: {', '.join(retrieved_files(chunks))}")
             st.text(f"Defenses: {', '.join(message.get('defenses') or ['none'])}")
+            if actions := message.get("filter_actions"):
+                st.text(f"Output filter: {describe_actions(actions)}")
             with st.expander(CHUNKS_LABEL):  # expander labels parse Markdown: fixed text only
                 for chunk in chunks:
                     st.text(f"{chunk['source']} #{chunk['chunk_index']} · distance {chunk['distance']:.3f}")
@@ -110,9 +113,12 @@ if question := st.chat_input("Ask about Northwind Gadgets"):
     try:
         with st.spinner("Thinking..."):
             # Each question is answered on its own: the model doesn't see the history.
-            text, chunks = answer(question, k, defenses)
+            text, chunks, filter_actions = answer(question, k, defenses)
     except EXPECTED_ERRORS as error:
         add({"role": "assistant", "content": f"Error: {error}", "error": True})
     else:
-        # Save the chunks and defenses with the answer, so its panel survives redraws.
-        add({"role": "assistant", "content": text, "chunks": chunks, "defenses": defenses})
+        # Save the chunks, defenses and filter actions with the answer, so its panel survives redraws.
+        add({
+            "role": "assistant", "content": text, "chunks": chunks,
+            "defenses": defenses, "filter_actions": filter_actions,
+        })
