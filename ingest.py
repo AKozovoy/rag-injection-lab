@@ -4,6 +4,7 @@ from pathlib import Path
 
 # Chunking settings: change these to try a different split.
 DOCS_DIR = Path(__file__).parent / "docs"  # next to this file, not the current directory
+ATTACKS_DIR = Path(__file__).parent / "attacks"  # injection docs, only indexed when chosen
 SECTION_MARKER = "## "  # each line starting with this begins a new chunk
 
 
@@ -49,6 +50,23 @@ def chunk_doc(doc: dict) -> list[dict]:
 def load_and_chunk(docs_dir: Path = DOCS_DIR) -> list[dict]:
     """Load all docs and return every chunk from all of them."""
     return [chunk for doc in load_docs(docs_dir) for chunk in chunk_doc(doc)]
+
+
+def list_attacks(attacks_dir: Path = ATTACKS_DIR) -> list[str]:
+    """File names of the available attack docs."""
+    return sorted(path.name for path in attacks_dir.glob("*.md"))
+
+
+def load_attacks(names: list[str], attacks_dir: Path = ATTACKS_DIR) -> list[dict]:
+    """Chunk the chosen attack docs, labelled "attacks/<name>" so they stand out."""
+    chunks = []
+    for name in names:
+        path = attacks_dir / name
+        if not path.is_file():
+            raise FileNotFoundError(f"attack doc not found: {path}")
+        doc = {"source": f"attacks/{name}", "text": path.read_text(encoding="utf-8")}
+        chunks.extend(chunk_doc(doc))
+    return chunks
 
 
 if __name__ == "__main__":
