@@ -89,6 +89,11 @@ def print_summary(rows: list[dict]) -> None:
 
 
 if __name__ == "__main__":
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else max(RESULTS_DIR.glob("attacks_*.json"))
-    print(f"Scoring {path.name}\n")
-    print_summary(score_run(json.loads(path.read_text(encoding="utf-8"))))
+    if len(sys.argv) > 1:
+        path = Path(sys.argv[1])
+    else:  # newest run by time (names start with the defense, so not alphabetical)
+        path = max(RESULTS_DIR.glob("attacks_*.json"), key=lambda p: p.stat().st_mtime)
+    results = json.loads(path.read_text(encoding="utf-8"))
+    defenses = results["settings"].get("defenses") or ["none (baseline)"]
+    print(f"Scoring {path.name}\nDefenses: {', '.join(defenses)}\n")
+    print_summary(score_run(results))

@@ -5,7 +5,7 @@ Run with: streamlit run app.py
 
 import streamlit as st
 
-from rag import EXPECTED_ERRORS, answer, retrieved_files
+from rag import DEFENSES, EXPECTED_ERRORS, answer, retrieved_files
 from ingest import list_attacks
 from vectorstore import TOP_K, build_index, index_attacks
 
@@ -23,6 +23,7 @@ st.caption(PAGE_CAPTION)
 # Sidebar: debugging controls for the attack experiments.
 with st.sidebar:
     k = st.slider("Chunks to retrieve (k)", min_value=1, max_value=MAX_K, value=TOP_K)
+    defenses = st.multiselect("Defenses", DEFENSES)  # none = baseline
     chosen_attacks = st.multiselect("Attack docs to include", list_attacks())
     # Rebuild after changing docs/ or the attack selection.
     if st.button("Rebuild index"):
@@ -68,6 +69,7 @@ def show(message: dict) -> None:
         # be planted, so they are shown as plain text too (st.text / st.code).
         if chunks := message.get("chunks"):
             st.text(f"Retrieved files: {', '.join(retrieved_files(chunks))}")
+            st.text(f"Defenses: {', '.join(message.get('defenses') or ['none'])}")
             with st.expander(CHUNKS_LABEL):  # expander labels parse Markdown: fixed text only
                 for chunk in chunks:
                     st.text(f"{chunk['source']} #{chunk['chunk_index']} · distance {chunk['distance']:.3f}")
@@ -90,9 +92,9 @@ if question := st.chat_input("Ask about Northwind Gadgets"):
     try:
         with st.spinner("Thinking..."):
             # Each question is answered on its own: the model doesn't see the history.
-            text, chunks = answer(question, k)
+            text, chunks = answer(question, k, defenses)
     except EXPECTED_ERRORS as error:
         add({"role": "assistant", "content": f"Error: {error}", "error": True})
     else:
-        # Save the chunks with the answer, so its panel survives redraws.
-        add({"role": "assistant", "content": text, "chunks": chunks})
+        # Save the chunks and defenses with the answer, so its panel survives redraws.
+        add({"role": "assistant", "content": text, "chunks": chunks, "defenses": defenses})

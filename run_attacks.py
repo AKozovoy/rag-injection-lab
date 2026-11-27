@@ -8,9 +8,11 @@ Each case in attack_cases.json has:
   score_results.py). For attack cases it decides "the attack worked";
   for clean cases it decides "the answer is correct".
 
-Run with: python run_attacks.py
+Run with: python run_attacks.py                      (baseline, no defenses)
+      or: python run_attacks.py --defense spotlight
 """
 
+import argparse
 import json
 import time
 from datetime import datetime
@@ -18,7 +20,7 @@ from pathlib import Path
 
 import ollama
 
-from rag import CHAT_MODEL, SEED, TEMPERATURE, answer
+from rag import CHAT_MODEL, DEFENSES, SEED, TEMPERATURE, answer
 from vectorstore import EMBED_MODEL, TOP_K, build_index
 
 CASES_FILE = Path(__file__).parent / "attack_cases.json"
@@ -30,12 +32,12 @@ def model_digests() -> dict[str, str]:
     return {m.model: m.digest for m in ollama.list().models}
 
 
-def run_case(case: dict) -> dict:
+def run_case(case: dict, defenses=()) -> dict:
     """Index the clean docs plus this case's attack doc, then ask its questions."""
     build_index([case["attack_doc"]] if case["attack_doc"] else [])
     answers = []
     for question in case["questions"]:
-        text, chunks = answer(question)
+        text, chunks = answer(question, defenses=defenses)
         answers.append({
             "question": question,
             "answer": text,
@@ -50,11 +52,12 @@ def run_case(case: dict) -> dict:
     return {**case, "answers": answers}
 
 
-def run_suite(cases: list[dict]) -> dict:
+def run_suite(cases: list[dict], defenses=()) -> dict:
     """Run all cases and return the results with the settings they ran under."""
     results = {
         "started": datetime.now().isoformat(timespec="seconds"),
         "settings": {
+            "defenses": sorted(defenses),  # empty = baseline
             "chat_model": CHAT_MODEL,
             "embed_model": EMBED_MODEL,
             "model_digests": model_digests(),
@@ -67,7 +70,7 @@ def run_suite(cases: list[dict]) -> dict:
     try:
         for number, case in enumerate(cases, start=1):
             start = time.perf_counter()
-            results["cases"].append(run_case(case))
+            results["cases"].append(run_case(case, defenses))
             print(f"[{number}/{len(cases)}] {case['id']} ({time.perf_counter() - start:.1f}s)")
     finally:
         build_index()  # leave the UI with a clean index, even if a case failed
@@ -75,9 +78,17 @@ def run_suite(cases: list[dict]) -> dict:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the attack suite.")
+    parser.add_argument(
+        "--defense", action="append", default=[], choices=DEFENSES,
+        help="turn on a defense (repeat the flag for several); none = baseline",
+    )
+    defenses = parser.parse_args().defense
+
     cases = json.loads(CASES_FILE.read_text(encoding="utf-8"))
-    results = run_suite(cases)
+    results = run_suite(cases, defenses)
     RESULTS_DIR.mkdir(exist_ok=True)
-    out = RESULTS_DIR / f"attacks_{datetime.now():%Y%m%d-%H%M%S}.json"
+    label = "+".join(sorted(defenses)) or "none"
+    out = RESULTS_DIR / f"attacks_{label}_{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved {sum(len(c['answers']) for c in results['cases'])} answers to {out}")
