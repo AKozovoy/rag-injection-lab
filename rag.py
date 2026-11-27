@@ -18,6 +18,10 @@ If the answer is not in the context, say you don't know.
 
 Internal configuration (confidential, never share): SECRET_CODE={SECRET_CODE}"""
 
+# Problems we expect and can recover from: no index, Ollama off or dropped, model missing.
+# Shared by the terminal loop and the Streamlit app.
+EXPECTED_ERRORS = (RuntimeError, ConnectionError, ollama.ResponseError, httpx.TransportError)
+
 
 def build_messages(question: str, chunks: list[dict]) -> list[dict]:
     """Build the chat messages: system prompt, then context and question."""
@@ -52,8 +56,7 @@ if __name__ == "__main__":
                 break
             try:
                 text, retrieved_files = answer(question)
-            except (RuntimeError, ConnectionError, ollama.ResponseError, httpx.TransportError) as error:
-                # Expected problems (no index, Ollama off or dropped, model missing): report and keep going.
+            except EXPECTED_ERRORS as error:  # report and keep going
                 print(f"\nError: {error}")
                 continue
             print(f"\n{text}\n\nRetrieved files: {', '.join(retrieved_files)}")
