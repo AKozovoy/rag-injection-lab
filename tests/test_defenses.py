@@ -2,7 +2,15 @@
 
 import pytest
 
-from rag import SPOTLIGHT_RULE, SYSTEM_PROMPT, build_messages, normalize_defenses
+from rag import (
+    HARDEN_RULES,
+    LINK_ALLOWLIST,
+    SANDWICH_REMINDER,
+    SPOTLIGHT_RULE,
+    SYSTEM_PROMPT,
+    build_messages,
+    normalize_defenses,
+)
 
 CHUNKS = [
     {"source": "refund_policy.md", "text": "Refunds within 30 days."},
@@ -49,6 +57,34 @@ def test_datamark_joins_words_with_the_marker():
 def test_unknown_defense_is_rejected():
     with pytest.raises(ValueError):
         build_messages("Q?", CHUNKS, ["typo"])
+
+
+def test_harden_adds_rules_to_the_system_prompt_only():
+    system, user = build_messages("Q?", CHUNKS, ["harden"])
+    assert system["content"] == SYSTEM_PROMPT + "\n\n" + HARDEN_RULES
+    assert SANDWICH_REMINDER not in user["content"]
+
+
+def test_sandwich_puts_the_reminder_after_the_question():
+    system, user = build_messages("Q?", CHUNKS, ["harden_sandwich"])
+    assert HARDEN_RULES in system["content"]
+    assert user["content"].endswith("Question: Q?\n\n" + SANDWICH_REMINDER)
+
+
+def test_hardened_prompt_lists_exactly_the_allowlist():
+    line = next(l for l in HARDEN_RULES.splitlines() if "web domains" in l)
+    assert line.split("domains: ")[1].rstrip(".") == ", ".join(LINK_ALLOWLIST)
+
+
+def test_harden_combines_with_spotlight():
+    system, user = build_messages("Q?", CHUNKS, ["spotlight", "harden_sandwich"])
+    assert SPOTLIGHT_RULE in system["content"] and HARDEN_RULES in system["content"]
+    assert '<document id="1">' in user["content"]
+    assert user["content"].endswith(SANDWICH_REMINDER)
+
+
+def test_both_harden_options_are_one_experiment():
+    assert normalize_defenses(["harden", "harden_sandwich"]) == ("harden_sandwich",)
 
 
 def test_both_spotlight_options_are_one_experiment():
