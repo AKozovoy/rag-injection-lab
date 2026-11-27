@@ -209,18 +209,37 @@ def attack_doc_snapshots(runs: dict[str, dict]) -> dict[str, str]:
     return {name: (ATTACKS_DIR / name).read_text(encoding="utf-8") for name in sorted(names)}
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    """Write to a temporary file, then rename it into place: all or nothing."""
+def _write_temp(path: Path, text: str) -> Path:
+    """Write the text next to path as path.tmp and return that temporary file."""
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    return tmp
+
+
+def _write_together(files: dict[Path, str]) -> None:
+    """Replace several files so they change together, in the given order.
+
+    Every file is written to a temporary copy first (where real failures like a
+    full disk happen); only when all of them exist are they renamed into place.
+    If a write fails, the temporary copies are removed and the old files stay.
+    """
+    temps = []
+    try:
+        for path, text in files.items():
+            temps.append((_write_temp(path, text), path))
+    except Exception:
+        for tmp, _ in temps:
+            tmp.unlink(missing_ok=True)
+        raise
+    for tmp, path in temps:  # a rename is near-instant and all-or-nothing
+        tmp.replace(path)
 
 
 def publish(report: dict, paths: dict[str, Path]) -> None:
     """Save the findings so a failure can never leave the report pointing at missing runs.
 
     1. copy the new runs into findings/runs/ (next to the old ones),
-    2. write the report and CSV atomically,
+    2. write the CSV and report together (both or neither), the report last,
     3. only then delete run copies the new report no longer uses.
     """
     runs_dir = FINDINGS_DIR / "runs"
@@ -230,13 +249,15 @@ def publish(report: dict, paths: dict[str, Path]) -> None:
         if path.resolve() != target.resolve():
             shutil.copy2(path, target)
 
-    _write_atomic(FINDINGS_DIR / "defense_comparison.json",
-                  json.dumps(report, indent=2, ensure_ascii=False))
     table = io.StringIO()
     writer = csv.DictWriter(table, fieldnames=list(report["rows"][0]))
     writer.writeheader()
     writer.writerows(report["rows"])
-    _write_atomic(FINDINGS_DIR / "defense_comparison.csv", table.getvalue())
+    # CSV first, JSON last: the JSON is what the Attack Lab page trusts.
+    _write_together({
+        FINDINGS_DIR / "defense_comparison.csv": table.getvalue(),
+        FINDINGS_DIR / "defense_comparison.json": json.dumps(report, indent=2, ensure_ascii=False),
+    })
 
     in_use = set(report["sources"].values())
     for old in runs_dir.glob("attacks_*.json"):

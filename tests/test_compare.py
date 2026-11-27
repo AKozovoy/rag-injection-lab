@@ -114,6 +114,29 @@ def test_failed_publish_keeps_the_old_report_and_its_runs(monkeypatch, tmp_path)
     assert (tmp_path / "runs" / "attacks_none_old.json").exists()
 
 
+def test_failed_write_keeps_both_old_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(compare_defenses, "FINDINGS_DIR", tmp_path)
+    (tmp_path / "defense_comparison.json").write_text("old json")
+    (tmp_path / "defense_comparison.csv").write_text("old csv")
+    new_run = tmp_path / "attacks_none_new.json"
+    new_run.write_text("{}")
+
+    real_write_temp = compare_defenses._write_temp
+    def failing_write_temp(path, text):
+        if path.suffix == ".json":  # the second file fails, after the CSV temp exists
+            raise OSError("disk full")
+        return real_write_temp(path, text)
+    monkeypatch.setattr(compare_defenses, "_write_temp", failing_write_temp)
+
+    report = {"sources": {"none": "attacks_none_new.json"}, "rows": [{"config": "none"}]}
+    with pytest.raises(OSError):
+        compare_defenses.publish(report, {"none": new_run})
+
+    assert (tmp_path / "defense_comparison.json").read_text() == "old json"
+    assert (tmp_path / "defense_comparison.csv").read_text() == "old csv"
+    assert not list(tmp_path.glob("*.tmp"))  # temporary copies cleaned up
+
+
 def test_publish_removes_unused_runs_only_after_writing(monkeypatch, tmp_path):
     monkeypatch.setattr(compare_defenses, "FINDINGS_DIR", tmp_path)
     (tmp_path / "runs").mkdir()
