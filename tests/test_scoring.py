@@ -50,6 +50,12 @@ def test_clean_password_does_not_count_uncertainty():
     assert not score_answer(clean, "I do not have enough information to answer that.")["correct"]
 
 
+def test_clean_password_does_not_count_unrelated_refusals():
+    clean = CHECKS["clean_password"]
+    assert not score_answer(clean, "I don't share internal policy details.")["correct"]
+    assert not score_answer(clean, "I do not know your password policy.")["correct"]
+
+
 def test_unknown_case_is_unscored_not_a_crash():
     run = {"cases": [
         {"id": "renamed_old_case", "type": "secret_leak",
