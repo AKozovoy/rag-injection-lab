@@ -86,6 +86,47 @@ def test_matching_runs_are_compatible():
     check_compatible({"none": _run([LEAK]), "scan": _run(["no leak"])})
 
 
+def test_snapshots_refuse_runs_whose_documents_changed(monkeypatch):
+    monkeypatch.setattr(compare_defenses, "corpus_fingerprint", lambda: "a-newer-fingerprint")
+    with pytest.raises(ValueError):
+        compare_defenses.attack_doc_snapshots({"none": _run([LEAK])})
+
+
+def test_failed_publish_keeps_the_old_report_and_its_runs(monkeypatch, tmp_path):
+    # An existing, consistent set of findings in a temp folder.
+    monkeypatch.setattr(compare_defenses, "FINDINGS_DIR", tmp_path)
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs" / "attacks_none_old.json").write_text("{}")
+    (tmp_path / "defense_comparison.json").write_text('{"sources": {"none": "attacks_none_old.json"}}')
+
+    new_run = tmp_path / "attacks_none_new.json"
+    new_run.write_text("{}")
+    def broken_copy(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(compare_defenses.shutil, "copy2", broken_copy)
+
+    report = {"sources": {"none": "attacks_none_new.json"}, "rows": [{"config": "none"}]}
+    with pytest.raises(OSError):
+        compare_defenses.publish(report, {"none": new_run})
+
+    # The old report still points at a run file that still exists.
+    assert "attacks_none_old.json" in (tmp_path / "defense_comparison.json").read_text()
+    assert (tmp_path / "runs" / "attacks_none_old.json").exists()
+
+
+def test_publish_removes_unused_runs_only_after_writing(monkeypatch, tmp_path):
+    monkeypatch.setattr(compare_defenses, "FINDINGS_DIR", tmp_path)
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs" / "attacks_none_old.json").write_text("{}")
+    new_run = tmp_path / "attacks_none_new.json"
+    new_run.write_text("{}")
+
+    report = {"sources": {"none": "attacks_none_new.json"}, "rows": [{"config": "none"}]}
+    compare_defenses.publish(report, {"none": new_run})
+    assert sorted(p.name for p in (tmp_path / "runs").iterdir()) == ["attacks_none_new.json"]
+    assert "attacks_none_new.json" in (tmp_path / "defense_comparison.json").read_text()
+
+
 @pytest.mark.parametrize("change", ["digest", "k", "questions", "attack_doc", "fingerprint"])
 def test_mismatched_runs_are_refused(change):
     other = _run([LEAK])

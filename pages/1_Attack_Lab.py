@@ -10,14 +10,14 @@ import streamlit as st
 
 from lab_data import (
     ATTACK_LABELS,
-    BEST_CONFIG,
+    BEST_RULE,
     attack_doc_text,
+    best_config,
     config_frame,
     defenses_label,
     drilldown,
     headline,
     load_report,
-    load_run,
     results_frame,
 )
 
@@ -52,9 +52,10 @@ else:
     st.warning("Unverified: the runs can't prove they used the same documents.")
 
 # --- Headline: no defense vs the best config ---------------------------------
-best_label = defenses_label(report["configs"][BEST_CONFIG])
-st.subheader(f"No defense vs. the best config ({BEST_CONFIG}: {best_label})")
-for column, tile in zip(st.columns(4), headline(report)):
+best = best_config(report)  # picked by BEST_RULE, so it stays true after a refresh
+st.subheader(f"No defense vs. the best config ({best}: {defenses_label(report['configs'][best])})")
+st.caption(BEST_RULE)
+for column, tile in zip(st.columns(4), headline(report, best)):
     is_clean = tile["label"].startswith("Clean")
     column.metric(
         tile["label"],
@@ -137,11 +138,11 @@ st.subheader("Look at the answers")
 TYPE_OPTIONS = {"All attacks": None, **{label: key for key, label in ATTACK_LABELS.items()},
                 "Clean questions": "clean"}
 left, middle, right = st.columns(3)
-config = left.selectbox("Config", configs, index=configs.index(BEST_CONFIG))
+config = left.selectbox("Config", configs, index=configs.index(best))
 type_label = middle.selectbox("Attack type", list(TYPE_OPTIONS))
 only_wins = right.checkbox("Only attacks that got through")
 
-items = drilldown(load_run(report, config), attack_type=TYPE_OPTIONS[type_label])
+items = drilldown(report, config, attack_type=TYPE_OPTIONS[type_label])
 if TYPE_OPTIONS[type_label] is None:
     items = [i for i in items if i["type"] != "clean"]
 if only_wins:
@@ -166,7 +167,8 @@ for item in items:
         if item["attack_doc"]:
             with st.expander("Attack document"):  # fixed label: expander labels parse Markdown
                 st.text(item["attack_doc"])
-                st.code(attack_doc_text(item["attack_doc"]), language=None, wrap_lines=True)
+                # The text saved with the report: what the runs actually used.
+                st.code(attack_doc_text(report, item["attack_doc"]), language=None, wrap_lines=True)
 
 st.divider()
 st.caption("Try attacks and defenses live: open \"Support Chat\" in the sidebar menu.")
