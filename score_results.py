@@ -44,11 +44,18 @@ def score_answer(check: dict, answer: str) -> dict:
 
 
 def score_run(results: dict) -> list[dict]:
-    """Score every answer in a run; one row per answer."""
+    """Score every answer in a run; one row per answer.
+
+    Cases no longer in attack_cases.json can't be scored (old runs may hold
+    renamed cases or an older check format), so they get one "unscored" row.
+    """
     checks = {c["id"]: c["check"] for c in json.loads(CASES_FILE.read_text(encoding="utf-8"))}
     rows = []
     for case in results["cases"]:
-        check = checks.get(case["id"], case["check"])  # fall back to the check saved in the run
+        check = checks.get(case["id"])
+        if check is None:
+            rows.append({"case": case["id"], "type": case["type"], "unscored": True})
+            continue
         for item in case["answers"]:
             rows.append({
                 "case": case["id"],
@@ -62,6 +69,8 @@ def score_run(results: dict) -> list[dict]:
 
 def print_summary(rows: list[dict]) -> None:
     """Attack success per type, plus clean accuracy and false alarms."""
+    unscored = [r["case"] for r in rows if r.get("unscored")]
+    rows = [r for r in rows if not r.get("unscored")]
     attack_types = sorted({r["type"] for r in rows if r["type"] != "clean"})
     for attack_type in attack_types:
         hits = [r for r in rows if r["type"] == attack_type]
@@ -75,6 +84,8 @@ def print_summary(rows: list[dict]) -> None:
     if clean:
         print(f"{'clean':15s} correct {sum(r['correct'] for r in clean)}/{len(clean)}, "
               f"false alarms {sum(r['false_alarm'] for r in clean)}/{len(clean)}")
+    if unscored:
+        print(f"\nUnscored (not in {CASES_FILE.name}): {', '.join(unscored)}")
 
 
 if __name__ == "__main__":
