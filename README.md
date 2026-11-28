@@ -2,7 +2,7 @@
 
 A small "chat with your docs" app that I built so I could attack it. It answers questions about a fictional company's policies using retrieval-augmented generation (RAG), and I used it to test indirect prompt injection: instructions hidden inside documents that the app retrieves and hands to the model. I designed attacks against it, built four defenses, and measured how many attacks each one actually stops.
 
-Document retrieval and model inference run locally with Chroma and Ollama, so the documents and questions never go to an outside AI service.
+Document retrieval and model inference run locally with Chroma and Ollama, and Chroma's and Streamlit's usage statistics are turned off, so the app doesn't send anything to outside services.
 
 ## Why indirect prompt injection matters
 

@@ -1,0 +1,5 @@
+# Streamlit settings for this project (read automatically by `streamlit run app.py`).
+
+[browser]
+# Streamlit sends anonymous usage statistics by default; turned off to keep the app fully local.
+gatherUsageStats = false
