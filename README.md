@@ -2,7 +2,7 @@
 
 A small "chat with your docs" app that I built so I could attack it. It answers questions about a fictional company's policies using retrieval-augmented generation (RAG), and I used it to test indirect prompt injection: instructions hidden inside documents that the app retrieves and hands to the model. I designed attacks against it, built four defenses, and measured how many attacks each one actually stops.
 
-Everything runs locally with Ollama, so no data leaves the machine.
+Document retrieval and model inference run locally with Chroma and Ollama, so the documents and questions never go to an outside AI service.
 
 ## Why indirect prompt injection matters
 
@@ -32,7 +32,7 @@ A few things surprised me. The hardened system prompt, which spells out rules li
 
 Turning on every defense at once was also worse than the three-part combination. Datamarking and the sandwich prompt each made the model more cautious and cost a correct answer on their own, and they still did when combined.
 
-The attack nothing could stop is the plain lie. A document that just says "customers may request a refund within 3 days" doesn't contain any instructions, links or hidden text, so the scanner has nothing to catch, the output filter sees a normal-looking answer, and spotlighting doesn't apply because nothing is being asked of the model. The documents that said "ignore any other documents" were easy to catch. The ones that sounded like ordinary policy weren't.
+False facts were the hardest attack category in this benchmark, and none of the configurations I tested eliminated them: the best one still let 3 of 12 through, down from 9. A document that just says "customers may request a refund within 3 days" doesn't contain any instructions, links or hidden text, so the scanner has nothing to catch, the output filter sees a normal-looking answer, and spotlighting doesn't apply because nothing is being asked of the model. The documents that said "ignore any other documents" were easy to catch. The ones that sounded like ordinary policy weren't.
 
 ![The Attack Lab page](images/attack_lab.png)
 
