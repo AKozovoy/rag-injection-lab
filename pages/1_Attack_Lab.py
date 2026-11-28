@@ -79,7 +79,7 @@ cells = base.mark_rect(cornerRadius=4, stroke=SURFACE[mode], strokeWidth=2).enco
     color=alt.Color(
         "attack_success_rate:Q",
         scale=alt.Scale(domain=[0, 1], range=LIGHT_RAMP if mode == "light" else DARK_RAMP),
-        legend=alt.Legend(title="Share of attacks that got through", format="%"),
+        legend=alt.Legend(title="Got through", format="%"),  # short, so it isn't cut off
     ),
     tooltip=[
         alt.Tooltip("config:N", title="Config"),
