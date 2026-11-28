@@ -6,6 +6,7 @@ from pathlib import Path
 
 import chromadb
 import ollama
+from chromadb.config import Settings
 
 import scanner  # module import (not "from"), so tests can swap scanner.scan_chunk
 from ingest import load_and_chunk, load_attacks
@@ -19,6 +20,17 @@ DOC_PREFIX = "search_document: "
 QUERY_PREFIX = "search_query: "  # used for questions in #3
 DISTANCE = "cosine"  # compare vector directions, not lengths
 TOP_K = 3  # how many chunks to retrieve per question
+
+
+def _client() -> chromadb.ClientAPI:
+    """Open the local Chroma database, with Chroma's usage statistics turned off.
+
+    Chroma reports anonymous usage events by default; this keeps the app fully local.
+    Every place that opens the database goes through here, so the setting can't be missed.
+    """
+    return chromadb.PersistentClient(
+        path=str(CHROMA_DIR), settings=Settings(anonymized_telemetry=False)
+    )
 
 
 def embed(texts: list[str]) -> list[list[float]]:
@@ -51,7 +63,7 @@ def build_index(attacks: list[str] | None = None, scan: bool = False) -> int:
     # Embed first: if Ollama fails here, the old index is still untouched.
     # If the scanner quarantined everything, there is nothing to embed.
     embeddings = embed([DOC_PREFIX + c["text"] for c in chunks]) if chunks else []
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    client = _client()
 
     # Delete and rebuild: chunks from removed or edited docs can't linger.
     if COLLECTION_NAME in [c.name for c in client.list_collections()]:
@@ -81,7 +93,7 @@ def build_index(attacks: list[str] | None = None, scan: bool = False) -> int:
 
 def get_collection() -> chromadb.Collection:
     """Open the existing collection, or fail with a clear message."""
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    client = _client()
     if COLLECTION_NAME not in [c.name for c in client.list_collections()]:
         raise RuntimeError("Index not found: run `python vectorstore.py` first")
     collection = client.get_collection(COLLECTION_NAME)
